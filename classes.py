@@ -1,9 +1,8 @@
 import pandas as pd
 import numpy as np
 import copy
-import psidraw
-import psidvars
 from functions import categories
+
 class psiddata:
     def __init__(self, rawdata = None):
         if isinstance(rawdata, psidraw):
@@ -141,3 +140,107 @@ class psiddata:
         finaldf = finaldf.reset_index()
         finaldf['year'] = finaldf['year'].astype(int)
         return finaldf
+
+
+
+
+
+class psidraw:
+    def __init__(self):
+        print('psidraw class: use .load() to import raw data')
+
+# Function to read in psid variable name file
+    def psidcw(self):
+        vardata = pd.read_excel('psid.xlsx')
+# split variable descriptions to allow for multiple identifying variables
+        vardata['split_text'] = vardata['TEXT'].str.split('>')
+        vardata['C0'] = vardata['TYPE']
+        for cat in range(1, vardata['split_text'].str.len().max()):
+            text = vardata['split_text'].str[cat]
+            text = text.str.replace('\n\d\d', '')
+            text = text.str.replace(':', '')
+            vardata['C' + str(cat)] = text
+        return vardata.fillna('missing')
+
+
+    def initiate_dict(self):
+        d = {}
+# Function to read in family data
+        for year in range(1999, self.lastyear + 2, 2):
+            d[year] = pd.read_stata('familydata/fam' + str(year) + '.dta')
+# Function to read in wealth data
+        for year in range(1999, 2009, 2):
+            wealth = pd.read_stata('wealthdata/wlth' + str(year) + '.dta')
+            d[year] = d[year].join(wealth)
+        return d
+
+# Function to read in crosswalk to match up datasets across years
+    def initiate_concw(self):
+        concw = pd.read_excel("ConsExpCrosswalk.xlsx")
+        concw.columns = ['name', 'oldname'] + list(
+            range(1999, self.lastyear + 1, 2))
+        concw = copy.deepcopy(concw.loc[2:])
+        return concw
+
+
+    def load(self, lastyear = 2017):
+        self.lastyear = lastyear
+        self.psidcw = self.psidcw()
+        self.rawfam = self.initiate_dict()
+        self.rawind = pd.read_stata('IndividualData/individual.dta')
+        self.rawchild = pd.read_stata('ChildHistoryData/childhistory.dta')
+        self.concw = self.initiate_concw()
+
+
+
+
+
+
+class psidvars:
+    def __init__(self, rawdata = None):
+        if isinstance(rawdata, psidraw):
+            self.reshapelist = []
+            self.renamedict = {}
+            self.fam_ndf = pd.DataFrame()
+            self.ind_ndf = pd.DataFrame()
+            self.lastyear = rawdata.lastyear
+            self.psidcw = rawdata.psidcw
+            self.concw = rawdata.concw
+        else:
+            print('include raw data object')
+
+    def rename(self, namedf, namelist):
+        # reshapelist is a list of names for wide to long function
+        for name in [x for x in namelist if x not in self.reshapelist]:
+            self.reshapelist.append(name)
+        # append psid index dataframes for individual and family data
+        self.fam_ndf = self.fam_ndf.append(
+            namedf[namedf['TYPE'] == 'FAMILY PUBLIC'])
+        self.ind_ndf = self.ind_ndf.append(
+            namedf[namedf['TYPE'] == 'INDIVIDUAL'])
+        assert(len(namedf) == len(namelist))
+        # create dictionary with desired and raw data names + years
+        rdict = {}
+        for year in range(1999, self.lastyear + 1, 2):
+            col_name = 'Y' + str(year)
+            oglist = list(namedf[col_name])
+            for i in range(0, len(oglist)):
+                rdict[oglist[i]] = namelist[i] + str(year)
+        return rdict
+
+# creates a renaming dictionary for a namedf of PSID data
+    def update_rename(self, namelist, clist):
+        namedf = categories(self.psidcw, clist)
+        newdict = self.rename(namedf, namelist)
+        self.renamedict.update(newdict)
+
+    def cons_renamedict(self):
+        # adds consumption variables from psid crosswalk (available online)
+        # to renamedict and reshapelist
+        for index, row in self.concw.iterrows():
+            for y in range(1999, self.lastyear + 1, 2):
+                ogname = row[y]
+                newname = row['name'].strip()
+                self.renamedict[ogname] = newname + str(y)
+                if newname not in self.reshapelist:
+                    self.reshapelist.append(newname)

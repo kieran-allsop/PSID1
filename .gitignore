@@ -1,0 +1,11 @@
+.DS_Store
+__pycache__
+ChildHistoryData
+ConsExpCrosswalk.xlsx
+FamilyData
+format_data.do
+IndividualData
+PCEPI.csv
+psid.xlsx
+WealthData
+.ipynb_checkpoints/
